@@ -297,9 +297,9 @@ $block = {
             $formattedDate = $timeStamp.ToString("yyyyMMddHHmmss")
 
             # check the extension
-            $extension = [System.IO.Path]::GetExtension($name)
-            $allowedExtensions = @(".jfif", ".jpeg", ".jpg", ".png")
-            if ($allowedExtensions -notcontains $extension) {
+            $extension = [System.IO.Path]::GetExtension($name).ToLower()
+            $allowedExtensions = @(".jfif", ".jpeg", ".jpg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".heif", ".webp")
+            if ($allowedExtensions -inotcontains $extension) {
                 Write-Report "Not an image I recognize! '$extension'"
                 return
             }
