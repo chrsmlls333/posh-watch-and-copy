@@ -343,6 +343,9 @@ $block = {
         
     }
 
+    while($true) {
+        Start-Sleep -Seconds 5
+    }
 }
 
 $encodedBlock = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($block))
