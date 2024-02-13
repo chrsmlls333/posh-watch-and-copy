@@ -1,7 +1,29 @@
 
 # PowerShell File Watch and Copy
 
-This PowerShell script is a robust file watcher and copier. It monitors a specified source directory for file changes, including file creation, modification, and renaming. When such an event occurs, the script copies the affected file to a designated destination directory and renames it with a unique identifier.
+This PowerShell script monitors a specified source directory for file changes, including file creation, modification, and renaming. When such an event occurs, the script copies the affected file to a designated destination directory and renames it with a unique identifier.
+
+Note: this script is built for Windows PowerShell 5.1 and may not work with PowerShell Core.
+
+## Usage
+
+- Clone the repository to your local machine.
+- Unblock the `launch.ps1` file by right-clicking it, selecting Properties, and clicking the Unblock button
+  - or by running the following command in PowerShell: 
+  ```powershell
+  Unblock-File -Path .\launch.ps1
+  ```
+  - or by setting the execution policy to Unrestricted:
+  ```powershell
+  Set-ExecutionPolicy Unrestricted
+  ```
+  - Note: this is a security risk and should be used with caution. Always set the execution policy back to Restricted or RemoteSigned after running the script.
+  - Always review the contents of a script before running it.
+- Run `launch.ps1` to start `watch.ps1` in a new Windows PowerShell process with the Bypass execution policy. 
+- You will be given a short intro dialog, then prompted to select the source and destination directories if there is no hiorstory of these paths in the config file.
+- The script will then prompt you to select the types of file events to watch for: file creation, changes, renaming, or deletion (not implemented).
+- The script will start monitoring the source directory, logging events and errors to a log file, `watch_log.txt`, in the script's directory.
+
 
 ## Features
 
@@ -36,3 +58,9 @@ I built this for my own use case, so comment or rewrite these areas to alter beh
   - Does it need the execution policy bypass?
 - Put a time limit on the hashing function or check filesize first
 - Use a faster copy command like robocopy (benefits?)
+
+
+## Helpful References
+
+- [FileSystemWatcher Class](https://docs.microsoft.com/en-us/dotnet/api/system.io.filesystemwatcher?view=net-5.0)
+- https://blog.idera.com/database-tools/using-filesystemwatcher-correctly-part-2

@@ -357,8 +357,8 @@ $handlers = . {
     }
 
     $eventList = [string]::Join(', ', $ActiveEventNames)
-    $subdirText = if ($subdirCB.Checked) { " and subdirectories" } else { "" }
-    Write-Report "File watcher started for $eventList events in `"$sourceFolderPath`"$subdirText."
+    $subdirText = if ($subdirCB.Checked) { " and subdirectories." } else { "" }
+    Write-Report "File watcher started for $eventList events in `"$sourceFolderPath`"$subdirText"
     Write-Host "`nKeep this terminal window open to continue watching/copying operations!" -BackgroundColor Red -ForegroundColor White
     Write-Host ""
 }

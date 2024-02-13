@@ -10,4 +10,6 @@
 $Host.UI.RawUI.WindowTitle = "Powershell Watch & Copy Launcher"
 
 $scriptPath = Join-Path $PSScriptRoot "watch.ps1"
-Start-Process powershell -ArgumentList "-NoLogo -ExecutionPolicy Bypass -File `"$scriptPath`""
+$windowsPowerShell = [System.IO.Path]::Combine([System.Environment]::GetFolderPath("System"), "WindowsPowerShell", "v1.0", "powershell.exe")
+Start-Process $windowsPowerShell -ArgumentList "-NoLogo -ExecutionPolicy Bypass -File `"$scriptPath`""
+
