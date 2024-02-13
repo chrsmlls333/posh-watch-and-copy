@@ -19,10 +19,12 @@
     February 2024
 #>
 
-$Host.UI.RawUI.WindowTitle = "Powershell Watch & Copy"
-
 Add-Type -AssemblyName System.Windows.Forms
 
+
+## INTRO MESSAGE
+
+$Host.UI.RawUI.WindowTitle = "Powershell Watch & Copy"
 $result = [System.Windows.Forms.MessageBox]::Show(
     "This script watches a specified directory for new files and copies them to another directory, with a unique filename. Please press OK to continue.", 
     "Watch & Copy", 
@@ -33,6 +35,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::Cancel) { exit }
 
 # $scriptDirectory = Get-Location
 $scriptDirectory = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+
 
 ## CREATE LOG FILE
 
@@ -73,17 +76,92 @@ function Show-Error {
 
 }
 
+
 ## READ CONFIGURATION FILE
 
 $configFilename = 'watch_config.json'
 $configPath = Join-Path -Path $scriptDirectory -ChildPath $configFilename
+$global:config = @{ 
+    # default folder paths
+    SourceFolderPath = $null; 
+    DestinationFolderPath = $null 
 
-if (Test-Path -Path $configPath) {
-    $config = Get-Content -Path $configPath | ConvertFrom-Json
+    # default watch settings
+    WatchCreated = $true
+    WatchChanged = $false
+    WatchRenamed = $true
+    WatchDeleted = $false
+    IncludeSubdirectories = $false
+    ImageFilterEnabled = $true
+}
+
+Function Merge-Hashtables {
+    $Output = @{}
+    ForEach ($Hashtable in ($Input + $Args)) {
+        If ($Hashtable -is [Hashtable]) {
+            ForEach ($Key in $Hashtable.Keys) {$Output.$Key = $Hashtable.$Key}
+        }
+    }
+    $Output
+}
+
+function Merge-Config {
+    param (
+        [Parameter(Mandatory=$true)]
+        [hashtable]$newConfig
+    )
+    $global:config = Merge-Hashtables $global:config $newConfig
+}
+
+function Write-ConfigFile {
+    param (
+        [switch]$Quiet = $false
+    )
+    try {
+        $global:config | ConvertTo-Json | Set-Content -Path $configPath
+        Invoke-Expression -Command "attrib +h `"$configPath`""
+        if (-not $Quiet) {
+            Write-Report "Saved the configuration to a hidden file at '$configPath'"
+        }
+    } catch {
+        Write-Report "Failed to save the configuration to '$configPath': $_"
+    }
+}
+
+function Read-ConfigFile {
+    param(
+        [switch]$Merge = $false
+    )
+    if (Test-Path -Path $configPath) {
+        $savedConfig = @{}
+        $savedConfigRaw = Get-Content -Path $configPath | ConvertFrom-Json
+        $savedConfigRaw.psobject.properties | ForEach-Object { $savedConfig[$_.Name] = $_.Value }
+        if ($Merge) {
+            Merge-Config $savedConfig
+        }
+    } else {
+        Write-Report "Configuration file '$configPath' does not exist"
+        return $null
+    }
+    return $global:config
+}
+
+function Get-Config {
+    return $global:config
+}
+
+Read-ConfigFile -Merge | Out-Null
+
+
+## PICK FOLDERS
+
+$pickNewFolders = $true # default
+
+if ($null -ne $global:config.SourceFolderPath -and $null -ne $global:config.DestinationFolderPath) {
     $mess = "I found a saved configuration file!`n`n" +
             "Do you want to use the paths from last time?`n`n" +
-            "Source:`n$($config.SourceFolderPath)`n`n" +
-            "Destination:`n$($config.DestinationFolderPath)"
+            "Source:`n$($global:config.SourceFolderPath)`n`n" +
+            "Destination:`n$($global:config.DestinationFolderPath)"
     $result = [System.Windows.Forms.MessageBox]::Show(
         $mess, 
         "Reuse Previous Watch Folders?", 
@@ -92,16 +170,22 @@ if (Test-Path -Path $configPath) {
     )
 
     if ($result -eq "Yes") {
-        $sourceFolderPath = $config.SourceFolderPath
-        $destinationFolderPath = $config.DestinationFolderPath
+        if (-not (Test-Path $global:config.SourceFolderPath -PathType Container) -and 
+            -not (Test-Path $global:config.DestinationFolderPath -PathType Container)) {
+            Show-Error "One or both of the saved folders do not exist or are not directories. Please select new folders."
+            $pickNewFolders = $true
+        } else {
+            Write-Report "Using the saved folder paths."
+            $pickNewFolders = $false
+        }
     }
-} else {
-    Write-Report "Configuration file '$configPath' does not exist"
 }
 
-## PICK NEW FOLDERS
-
-if ($null -eq $sourceFolderPath -or $null -eq $destinationFolderPath) {
+if ($pickNewFolders -eq $true) {
+    $folderConfig = @{
+        SourceFolderPath = $null
+        DestinationFolderPath = $null
+    }
     $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
 
     # Ask for the source/watch folder
@@ -109,8 +193,8 @@ if ($null -eq $sourceFolderPath -or $null -eq $destinationFolderPath) {
     $dialogResult = $folderBrowser.ShowDialog()
 
     if ($dialogResult -eq "OK") {
-        $sourceFolderPath = $folderBrowser.SelectedPath
-        Write-Report "You selected the source/watch folder: $sourceFolderPath"
+        $folderConfig.SourceFolderPath = $folderBrowser.SelectedPath
+        Write-Report "You selected the source/watch folder: $($folderConfig.SourceFolderPath)"
     } else {
         Show-Error "No source/watch folder was selected."
         exit
@@ -121,35 +205,27 @@ if ($null -eq $sourceFolderPath -or $null -eq $destinationFolderPath) {
     $dialogResult = $folderBrowser.ShowDialog()
 
     if ($dialogResult -eq "OK") {
-        $destinationFolderPath = $folderBrowser.SelectedPath
-        Write-Report "You selected the destination folder: $destinationFolderPath"
+        $folderConfig.DestinationFolderPath = $folderBrowser.SelectedPath
+        Write-Report "You selected the destination folder: $($folderConfig.DestinationFolderPath)"
     } else {
         Show-Error "No destination folder was selected."
         exit
     } 
 
-    # Store the folder paths in the configuration file
-    $config = @{
-        SourceFolderPath = $sourceFolderPath
-        DestinationFolderPath = $destinationFolderPath
-    }
-
-    $config | ConvertTo-Json | Set-Content -Path $configPath
-    Invoke-Expression -Command "attrib +h `"$configPath`""
-
-    Write-Report "Saved those folder paths to a hidden configuration file at '$configPath'"
+    # Store the folder paths
+    Merge-Config $folderConfig
 }
 
 
 ## VALIDATE
 
 $s = "does not exist or is not a directory. Try again. If you reused past settings, re-select your folder manually."
-if (-not (Test-Path $sourceFolderPath -PathType Container)) {
-    Show-Error "Watched folder '$sourceFolderPath' $s"
+if (-not (Test-Path $global:config.SourceFolderPath -PathType Container)) {
+    Show-Error "Watched folder `"$($global:config.SourceFolderPath)`" $s"
     exit
 }
-if (-not (Test-Path $destinationFolderPath -PathType Container)) {
-    Show-Error "Destination folder '$destinationFolderPath' $s"
+if (-not (Test-Path $global:config.DestinationFolderPath -PathType Container)) {
+    Show-Error "Destination folder `"$($global:config.DestinationFolderPath)`" $s"
     exit
 }
 
@@ -177,7 +253,7 @@ $createdCB.Text = 'Created'
 $createdCB.Top = 60
 $createdCB.Left = 20
 $createdCB.Font = $font
-$createdCB.Checked = $true
+$createdCB.Checked = $global:config.WatchCreated
 $form.Controls.Add($createdCB)
 
 $changedCB = New-Object System.Windows.Forms.CheckBox
@@ -185,7 +261,7 @@ $changedCB.Text = 'Changed'
 $changedCB.Top = 90
 $changedCB.Left = 20
 $changedCB.Font = $font
-$changedCB.Checked = $false
+$changedCB.Checked = $global:config.WatchChanged
 $form.Controls.Add($changedCB)
 
 $renamedCB = New-Object System.Windows.Forms.CheckBox
@@ -193,7 +269,7 @@ $renamedCB.Text = 'Renamed'
 $renamedCB.Top = 120
 $renamedCB.Left = 20
 $renamedCB.Font = $font
-$renamedCB.Checked = $true
+$renamedCB.Checked = $global:config.WatchRenamed
 $form.Controls.Add($renamedCB)
 
 $deletedCB = New-Object System.Windows.Forms.CheckBox
@@ -201,7 +277,7 @@ $deletedCB.Text = 'Deleted'
 $deletedCB.Top = 150
 $deletedCB.Left = 20
 $deletedCB.Font = $font
-$deletedCB.Checked = $false
+$deletedCB.Checked = $global:config.WatchDeleted
 $deletedCB.Enabled = $false
 $form.Controls.Add($deletedCB)
 
@@ -211,6 +287,7 @@ $subdirCB.AutoSize = $true
 $subdirCB.Top = 190
 $subdirCB.Left = 20
 $subdirCB.Font = $font
+$subdirCB.Checked = $global:config.IncludeSubdirectories
 $form.Controls.Add($subdirCB)
 
 $imageFilterCB = New-Object System.Windows.Forms.CheckBox
@@ -219,7 +296,7 @@ $imageFilterCB.AutoSize = $true
 $imageFilterCB.Top = 220
 $imageFilterCB.Left = 20
 $imageFilterCB.Font = $font
-$imageFilterCB.Checked = $true
+$imageFilterCB.Checked = $global:config.ImageFilterEnabled
 $form.Controls.Add($imageFilterCB)
 
 $okButton = New-Object System.Windows.Forms.Button
@@ -236,6 +313,8 @@ $okButton.Add_Click({
     }
 })
 $form.Controls.Add($okButton)
+$okButton.Select() # Set the OK button as the default button
+$form.AcceptButton = $okButton
 
 $result = $form.ShowDialog()
 if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -243,11 +322,28 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
     return
 }
 
+$watchSettingsConfig = @{
+    WatchCreated = $createdCB.Checked
+    WatchChanged = $changedCB.Checked
+    WatchRenamed = $renamedCB.Checked
+    WatchDeleted = $deletedCB.Checked
+    IncludeSubdirectories = $subdirCB.Checked
+    ImageFilterEnabled = $imageFilterCB.Checked
+}
+Merge-Config $watchSettingsConfig
+
+
+## SAVE CONFIGURATION
+
+Write-ConfigFile
+$c = Get-Config # shorthand for the global config
+
+
 ## INITIALIZE WATCHER
 
 $watcher = New-Object System.IO.FileSystemWatcher
-$watcher.Path = $sourceFolderPath
-$watcher.IncludeSubdirectories = $subdirCB.Checked
+$watcher.Path = $c.SourceFolderPath
+$watcher.IncludeSubdirectories = $global:config.IncludeSubdirectories
 $watcher.EnableRaisingEvents = $true
 
 $Action = {
@@ -262,7 +358,7 @@ $Action = {
         return
     }
     # TODO: add option to enable/disable this
-    $imageFilterEnabled = $imageFilterCB.Checked
+    $imageFilterEnabled = $c.ImageFilterEnabled
     $allowedExtensions = @(".jfif", ".jpeg", ".jpg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".heif", ".webp")
     if ($imageFilterEnabled -and $allowedExtensions -inotcontains $extension) {
         Write-Report "[Ignored] Not an image I recognize! ($extension)"
@@ -311,7 +407,7 @@ function Copy-Image
         $newname = "${formattedDate}_$($hash.Hash)$extension"
 
         # copy the file
-        $destinationFilePath = Join-Path -Path $destinationFolderPath -ChildPath $newname
+        $destinationFilePath = Join-Path -Path $c.DestinationFolderPath -ChildPath $newname
 
         # copy the file with retry logic
         $maxRetryCount = 3
@@ -339,7 +435,7 @@ function Copy-Image
 }
 
 $eventName = @( 'Created', 'Changed', 'Renamed', 'Deleted' )
-$active = @( $createdCB.Checked, $changedCB.Checked, $renamedCB.Checked, $deletedCB.Checked )
+$active = @( $c.WatchCreated, $c.WatchChanged, $c.WatchRenamed, $c.WatchDeleted )
 $handlers = . {
     $activeEventNames = @()
 
@@ -357,8 +453,8 @@ $handlers = . {
     }
 
     $eventList = [string]::Join(', ', $ActiveEventNames)
-    $subdirText = if ($subdirCB.Checked) { " and subdirectories." } else { "" }
-    Write-Report "File watcher started for $eventList events in `"$sourceFolderPath`"$subdirText"
+    $subdirText = if ($c.IncludeSubdirectories) { " and subdirectories." } else { "" }
+    Write-Report "File watcher started for $eventList events in `"$($c.SourceFolderPath)`"$subdirText"
     Write-Host "`nKeep this terminal window open to continue watching/copying operations!" -BackgroundColor Red -ForegroundColor White
     Write-Host ""
 }
@@ -389,10 +485,10 @@ function Unregister-Watcher {
 # $timer.Interval = 30000
 
 # Register-ObjectEvent -InputObject $timer -EventName Elapsed -SourceIdentifier Timer.Elapsed -Action {
-#     if (-not (Test-Path $sourceFolderPath -PathType Container)) {
+#     if (-not (Test-Path $c.SourceFolderPath -PathType Container)) {
 #         Unregister-Watcher
 #         $timer.Stop() 
-#         Show-Error "Watched folder '$sourceFolderPath' does not exist or is not a directory"
+#         Show-Error "Watched folder '$c.SourceFolderPath' does not exist or is not a directory"
 #         exit
 #     }
 # } | Out-Null
